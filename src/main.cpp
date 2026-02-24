@@ -46,6 +46,7 @@ void wifiFailedAnimation();
 void displayClock();
 void handleRoot();
 void handleUpdate();
+void handleTestAnimation();
 uint32_t hexToColor(String hex);
 String colorToHex(uint32_t color);
 uint32_t applyGammaCorrection(uint32_t color);
@@ -98,6 +99,7 @@ void setup() {
   // Setup web server routes
   server.on("/", handleRoot);
   server.on("/update", handleUpdate);
+  server.on("/testAnimation", handleTestAnimation);
   server.begin();
   Serial.println("Web server started");
 }
@@ -149,9 +151,9 @@ void displayClock() {
   }
 
   // Calculate positions
-  int secondPos = map(now.tm_sec, 0, 60, 0, NUM_LEDS);
-  int minutePos = map(now.tm_min, 0, 60, 0, NUM_LEDS);
-  int hourPos = map(now.tm_hour % 12, 0, 12, 0, NUM_LEDS);
+  int secondPos = (now.tm_sec % 60) * NUM_LEDS / 60;
+  int minutePos = (now.tm_min % 60) * NUM_LEDS / 60;
+  int hourPos = ((now.tm_hour % 12) * NUM_LEDS) / 12;
 
   // Set hands
   ring.setPixelColor(secondPos, applyGammaCorrection(colorSecondHand));
@@ -185,11 +187,27 @@ void handleRoot() {
   if (nowEpoch < 100000) {
     html += "Current Time: not synced (NTP)<br>";
   } else {
-    html += "Current Time: " + String(now.tm_hour) + ":" + String(now.tm_min) + ":" + String(now.tm_sec) + "<br>";
+  html += "Current Time: " + String(now.tm_hour) + ":" + String(now.tm_min) + ":" + String(now.tm_sec) + "<br>";
   }
   html += "IP: " + WiFi.localIP().toString() + "<br>";
   html += "NTP: " + String(ntpServer);
   html += "</div>";
+
+  html += "<h2>Animation Test</h2>";
+  html += "<form action='/testAnimation' method='POST'>";
+  html += "<div class='row'><label>Select animation</label>";
+  html += "<select name='animation' style='width:100%;height:40px;border-radius:8px;border:1px solid #475569;background:#0b1220;color:#e2e8f0;padding:0 10px;box-sizing:border-box;'>";
+  html += "<option value='rotating'>Rotating Ring</option>";
+  html += "<option value='pulsating'>Pulsating Glow</option>";
+  html += "<option value='progress'>Progress Bar</option>";
+  html += "<option value='wifiSearching'>WiFi Searching</option>";
+  html += "<option value='wifiConnecting'>WiFi Connecting</option>";
+  html += "<option value='wifiConnected'>WiFi Connected</option>";
+  html += "<option value='wifiFailed'>WiFi Failed</option>";
+  html += "</select></div>";
+  html += "<button type='submit'>Run Animation</button>";
+  html += "</form>";
+
   html += "<form action='/update' method='POST'>";
   html += "<h2>LED Colors</h2><div class='grid'>";
   html += "<div class='row'><label>Quadrants</label><input type='color' name='quadrantsColor' value='" + colorToHex(colorQuadrants) + "'></div>";
@@ -246,6 +264,39 @@ void handleUpdate() {
 
   server.sendHeader("Location", "/");
   server.send(303, "text/plain", "Updated");
+}
+
+void handleTestAnimation() {
+  if (!server.hasArg("animation")) {
+    server.sendHeader("Location", "/");
+    server.send(303, "text/plain", "No animation selected");
+    return;
+  }
+
+  String animation = server.arg("animation");
+
+  if (animation == "rotating") {
+    rotatingRingAnimation();
+  } else if (animation == "pulsating") {
+    pulsatingGlowAnimation();
+  } else if (animation == "progress") {
+    progressBarAnimation();
+  } else if (animation == "wifiSearching") {
+    for (int i = 0; i < NUM_LEDS; i++) {
+      wifiSearchingAnimation();
+    }
+  } else if (animation == "wifiConnecting") {
+    for (int i = 0; i < 20; i++) {
+      wifiConnectingAnimation();
+    }
+  } else if (animation == "wifiConnected") {
+    wifiConnectedAnimation();
+  } else if (animation == "wifiFailed") {
+    wifiFailedAnimation();
+  }
+
+  server.sendHeader("Location", "/");
+  server.send(303, "text/plain", "Animation executed");
 }
 
 uint32_t hexToColor(String hex) {
@@ -354,7 +405,7 @@ void pulsatingGlowAnimation() {
     ring.show();
     delay(20);
   }
-  ring.setBrightness(100); // Reset to default brightness
+  ring.setBrightness(::brightness); // Restore configured brightness
 }
 
 
