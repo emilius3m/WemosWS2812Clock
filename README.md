@@ -31,7 +31,7 @@ This project is a **Wi-Fi LED ring clock** for ESP8266 (Wemos D1 mini) with:
 
 1. Open this project folder in VS Code.
 2. Open PlatformIO sidebar.
-3. Select environment `d1_mini` from [`platformio.ini`](../platformio.ini).
+3. Select environment `d1_mini` from [`platformio.ini`](platformio.ini).
 4. Click **Build** then **Upload**.
 
 If upload fails, check USB cable/driver and COM port.
@@ -77,10 +77,10 @@ If sync fails:
 
 ## 7) Project folders
 
-- [`src/main.cpp`](../src/main.cpp): main firmware
-- [`platformio.ini`](../platformio.ini): board and dependencies
-- [`lib/`](.): optional custom libraries
-- [`include/`](../include): optional header files
-- [`test/`](../test): optional tests
+- [`src/main.cpp`](src/main.cpp): main firmware
+- [`platformio.ini`](platformio.ini): board and dependencies
+- [`lib/`](lib/): optional custom libraries
+- [`include/`](include/): optional header files
+- [`test/`](test/): optional tests
 
-You can leave [`lib/`](.) empty if you don't use custom libraries.
+You can leave [`lib/`](lib/) empty if you don't use custom libraries.

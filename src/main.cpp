@@ -47,6 +47,7 @@ void displayClock();
 void handleRoot();
 void handleUpdate();
 void handleTestAnimation();
+int wrapLedIndex(int index);
 uint32_t hexToColor(String hex);
 String colorToHex(uint32_t color);
 uint32_t applyGammaCorrection(uint32_t color);
@@ -151,16 +152,16 @@ void displayClock() {
   }
 
   // Calculate positions
-  int secondPos = (now.tm_sec % 60) * NUM_LEDS / 60;
-  int minutePos = (now.tm_min % 60) * NUM_LEDS / 60;
-  int hourPos = ((now.tm_hour % 12) * NUM_LEDS) / 12;
+  int secondPos = wrapLedIndex((now.tm_sec % 60) * NUM_LEDS / 60);
+  int minutePos = wrapLedIndex((now.tm_min % 60) * NUM_LEDS / 60);
+  int hourPos = wrapLedIndex(((now.tm_hour % 12) * NUM_LEDS) / 12);
 
   // Set hands
   ring.setPixelColor(secondPos, applyGammaCorrection(colorSecondHand));
   ring.setPixelColor(minutePos, applyGammaCorrection(colorMinuteHand));
-  ring.setPixelColor((hourPos - 1 + NUM_LEDS) % NUM_LEDS, applyGammaCorrection(colorHourHand));
+  ring.setPixelColor(wrapLedIndex(hourPos - 1), applyGammaCorrection(colorHourHand));
   ring.setPixelColor(hourPos, applyGammaCorrection(colorHourHand));
-  ring.setPixelColor((hourPos + 1) % NUM_LEDS, applyGammaCorrection(colorHourHand));
+  ring.setPixelColor(wrapLedIndex(hourPos + 1), applyGammaCorrection(colorHourHand));
 
   ring.show();
   delay(1000); // Update every second
@@ -311,11 +312,18 @@ String colorToHex(uint32_t color) {
 }
 
 uint32_t applyGammaCorrection(uint32_t color) {
-  float gamma = 2.8; // Gamma value for correction
-  uint8_t r = pow(((color >> 16) & 0xFF) / 255.0, gamma) * 255.0;
-  uint8_t g = pow(((color >> 8) & 0xFF) / 255.0, gamma) * 255.0;
-  uint8_t b = pow((color & 0xFF) / 255.0, gamma) * 255.0;
-  return ring.Color(r, g, b);
+  return ring.gamma32(color);
+}
+
+int wrapLedIndex(int index) {
+  if (NUM_LEDS <= 0) {
+    return 0;
+  }
+  index %= NUM_LEDS;
+  if (index < 0) {
+    index += NUM_LEDS;
+  }
+  return index;
 }
 
 bool syncTimeWithNTP() {
