@@ -5,6 +5,8 @@ This project is a **Wi-Fi LED ring clock** for ESP8266 (Wemos D1 mini) with:
 - Web interface for colors/brightness
 - Saved settings (kept after reboot)
 
+> Beginner note: follow this guide from top to bottom and do not skip the wiring and first upload steps.
+
 ---
 
 ## 1) What you need
@@ -25,6 +27,10 @@ This project is a **Wi-Fi LED ring clock** for ESP8266 (Wemos D1 mini) with:
 
 > Important: if the ring is unstable, use an external 5V power supply and common GND.
 
+Recommended for stability (especially at high brightness):
+- 330Ω resistor between ESP8266 data pin and LED DIN
+- 1000µF capacitor between 5V and GND near the LED ring
+
 ---
 
 ## 3) First flash (upload firmware)
@@ -34,7 +40,13 @@ This project is a **Wi-Fi LED ring clock** for ESP8266 (Wemos D1 mini) with:
 3. Select environment `d1_mini` from [`platformio.ini`](platformio.ini).
 4. Click **Build** then **Upload**.
 
+Optional (recommended) before upload:
+- open PlatformIO monitor and set `9600` baud
+- close monitor before uploading if COM port is busy
+
 If upload fails, check USB cable/driver and COM port.
+
+On first upload, wait ~20-40 seconds after reboot for Wi-Fi + NTP sync.
 
 ---
 
@@ -58,20 +70,32 @@ From this page you can:
 - set brightness
 - show/hide quadrants
 - set custom NTP server
+- choose timezone preset (Rome/London/UTC and others)
+- choose hour-hand mode (step/continuous)
 
 Settings are saved in EEPROM and restored after reboot.
+
+### Web UI screenshot
+
+![Web UI](screenshots/web-ui.png)
 
 ---
 
 ## 6) NTP and timezone
 
-- Timezone is Europe/Rome (CET/CEST, automatic daylight saving).
+- Timezone is selectable from web UI presets.
+- Europe/Rome and Europe/London include automatic daylight saving (DST).
 - Default NTP server: `pool.ntp.org`
 - You can change NTP server from web UI.
 
 If sync fails:
 - verify internet connection on your Wi-Fi
 - try another NTP server (`time.google.com`, `time.cloudflare.com`)
+
+If local time is wrong by 1 hour:
+- check selected timezone in web UI
+- verify serial monitor baud is `9600` to read correct logs
+- look for `Local time after sync: ... TZ=...` in serial output
 
 ---
 
@@ -82,5 +106,6 @@ If sync fails:
 - [`lib/`](lib/): optional custom libraries
 - [`include/`](include/): optional header files
 - [`test/`](test/): optional tests
+- [`screenshots/web-ui.png`](screenshots/web-ui.png): web interface screenshot used in this README
 
 You can leave [`lib/`](lib/) empty if you don't use custom libraries.

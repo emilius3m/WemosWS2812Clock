@@ -16,7 +16,19 @@ WiFiManager wm;
 char ntpServer[64] = "pool.ntp.org";
 const char* NTP_SERVER_2 = "time.google.com";
 const char* NTP_SERVER_3 = "time.cloudflare.com";
-const char* TZ_INFO = "CET-1CEST,M3.5.0/2,M10.5.0/3"; // Europe/Rome
+char tzInfo[64] = "CET-1CEST,M3.5.0/2,M10.5.0/3"; // Europe/Rome (DST automatic)
+const char* TZ_ROME = "CET-1CEST,M3.5.0/2,M10.5.0/3";
+const char* TZ_LONDON = "GMT0BST,M3.5.0/1,M10.5.0/2";
+const char* TZ_UTC = "UTC0";
+const char* TZ_NEWYORK = "EST5EDT,M3.2.0/2,M11.1.0/2";
+const char* TZ_LOSANGELES = "PST8PDT,M3.2.0/2,M11.1.0/2";
+const char* TZ_TOKYO = "JST-9";
+const char* TZ_SYDNEY = "AEST-10AEDT,M10.1.0/2,M4.1.0/3";
+const char* TZ_BERLIN = "CET-1CEST,M3.5.0,M10.5.0/3";
+const char* TZ_DUBAI = "GST-4";
+const char* TZ_KOLKATA = "IST-5:30";
+const char* TZ_SHANGHAI = "CST-8";
+const char* TZ_MOSCOW = "MSK-3";
 bool timeSynced = false;
 bool wifiConnectedHandled = false;
 unsigned long lastNtpRetryMs = 0;
@@ -29,10 +41,13 @@ struct SavedSettings {
   uint32_t colorSecondHand;
   uint8_t brightness;
   uint8_t showQuadrants;
+  uint8_t quadrantMode;
+  uint8_t hourHandMode;
   char ntpServer[64];
+  char tzInfo[64];
 };
 
-const uint32_t SETTINGS_MAGIC = 0xC10C2026;
+const uint32_t SETTINGS_MAGIC = 0xC10C2029;
 const int EEPROM_SIZE = 512;
 
 // Forward declarations
@@ -47,6 +62,7 @@ void displayClock();
 void handleRoot();
 void handleUpdate();
 void handleTestAnimation();
+void applyTimezone();
 int wrapLedIndex(int index);
 uint32_t hexToColor(String hex);
 String colorToHex(uint32_t color);
@@ -61,10 +77,13 @@ uint32_t colorHourHand = ring.Color(255, 0, 0);        // Hour hand
 uint32_t colorMinuteHand = ring.Color(255, 255, 255);  // Minute hand
 uint32_t colorSecondHand = ring.Color(0, 0, 255);      // Second hand
 bool showQuadrants = true;
-int brightness = 50;
+uint8_t quadrantMode = 12; // Allowed values: 4 or 12
+uint8_t hourHandMode = 0;  // 0 = step (hour only), 1 = continuous (hour+minute)
+int brightness = 255;
 
 void setup() {
   Serial.begin(9600);
+  applyTimezone();
 
   EEPROM.begin(EEPROM_SIZE);
   loadSettings();
@@ -132,6 +151,7 @@ void loop() {
 }
 
 void displayClock() {
+  applyTimezone();
   ring.clear();
 
   time_t nowEpoch = time(nullptr);
@@ -146,15 +166,23 @@ void displayClock() {
 
   // Mark the hour positions
   if (showQuadrants) {
-    for (int i = 0; i < 12; i++) {
-      ring.setPixelColor(i * 5, applyGammaCorrection(colorQuadrants));
+    int markerCount = (quadrantMode == 4) ? 4 : 12;
+    for (int i = 0; i < markerCount; i++) {
+      int pos = wrapLedIndex((i * NUM_LEDS) / markerCount);
+      ring.setPixelColor(pos, applyGammaCorrection(colorQuadrants));
     }
   }
 
   // Calculate positions
   int secondPos = wrapLedIndex((now.tm_sec % 60) * NUM_LEDS / 60);
   int minutePos = wrapLedIndex((now.tm_min % 60) * NUM_LEDS / 60);
-  int hourPos = wrapLedIndex(((now.tm_hour % 12) * NUM_LEDS) / 12);
+  int hourPos;
+  if (hourHandMode == 1) {
+    int hourTicks = (now.tm_hour % 12) * 60 + now.tm_min; // 0..719
+    hourPos = wrapLedIndex((hourTicks * NUM_LEDS) / 720);
+  } else {
+    hourPos = wrapLedIndex(((now.tm_hour % 12) * NUM_LEDS) / 12);
+  }
 
   // Set hands
   ring.setPixelColor(secondPos, applyGammaCorrection(colorSecondHand));
@@ -168,6 +196,7 @@ void displayClock() {
 }
 
 void handleRoot() {
+  applyTimezone();
   time_t nowEpoch = time(nullptr);
   struct tm now;
   localtime_r(&nowEpoch, &now);
@@ -191,7 +220,8 @@ void handleRoot() {
   html += "Current Time: " + String(now.tm_hour) + ":" + String(now.tm_min) + ":" + String(now.tm_sec) + "<br>";
   }
   html += "IP: " + WiFi.localIP().toString() + "<br>";
-  html += "NTP: " + String(ntpServer);
+  html += "NTP: " + String(ntpServer) + "<br>";
+  html += "TZ: " + String(tzInfo);
   html += "</div>";
 
   html += "<h2>Animation Test</h2>";
@@ -223,8 +253,97 @@ void handleRoot() {
     html += " checked";
   }
   html += "> Show Quadrants</label>";
+  html += "<div class='row'><label>Quadrant Mode</label>";
+  html += "<select name='quadrantMode' style='width:100%;height:40px;border-radius:8px;border:1px solid #475569;background:#0b1220;color:#e2e8f0;padding:0 10px;box-sizing:border-box;'>";
+  html += "<option value='4'";
+  if (quadrantMode == 4) {
+    html += " selected";
+  }
+  html += ">4 quadrants</option>";
+  html += "<option value='12'";
+  if (quadrantMode == 12) {
+    html += " selected";
+  }
+  html += ">12 quadrants</option>";
+  html += "</select></div>";
+  html += "<div class='row'><label>Hour Hand Mode</label>";
+  html += "<select name='hourHandMode' style='width:100%;height:40px;border-radius:8px;border:1px solid #475569;background:#0b1220;color:#e2e8f0;padding:0 10px;box-sizing:border-box;'>";
+  html += "<option value='0'";
+  if (hourHandMode == 0) {
+    html += " selected";
+  }
+  html += ">Step (hour only)</option>";
+  html += "<option value='1'";
+  if (hourHandMode == 1) {
+    html += " selected";
+  }
+  html += ">Continuous (hour + minute)</option>";
+  html += "</select></div>";
   html += "<h2>Time Sync</h2>";
   html += "<div class='row'><label>NTP Server</label><input type='text' name='ntpServer' maxlength='63' value='" + String(ntpServer) + "'></div>";
+  html += "<div class='row'><label>Timezone</label>";
+  html += "<select name='tzPreset' style='width:100%;height:40px;border-radius:8px;border:1px solid #475569;background:#0b1220;color:#e2e8f0;padding:0 10px;box-sizing:border-box;'>";
+  html += "<option value='rome'";
+  if (strcmp(tzInfo, TZ_ROME) == 0) {
+    html += " selected";
+  }
+  html += ">Europe/Rome</option>";
+  html += "<option value='london'";
+  if (strcmp(tzInfo, TZ_LONDON) == 0) {
+    html += " selected";
+  }
+  html += ">Europe/London</option>";
+  html += "<option value='utc'";
+  if (strcmp(tzInfo, TZ_UTC) == 0) {
+    html += " selected";
+  }
+  html += ">UTC</option>";
+  html += "<option value='newyork'";
+  if (strcmp(tzInfo, TZ_NEWYORK) == 0) {
+    html += " selected";
+  }
+  html += ">America/New_York</option>";
+  html += "<option value='losangeles'";
+  if (strcmp(tzInfo, TZ_LOSANGELES) == 0) {
+    html += " selected";
+  }
+  html += ">America/Los_Angeles</option>";
+  html += "<option value='tokyo'";
+  if (strcmp(tzInfo, TZ_TOKYO) == 0) {
+    html += " selected";
+  }
+  html += ">Asia/Tokyo</option>";
+  html += "<option value='sydney'";
+  if (strcmp(tzInfo, TZ_SYDNEY) == 0) {
+    html += " selected";
+  }
+  html += ">Australia/Sydney</option>";
+  html += "<option value='berlin'";
+  if (strcmp(tzInfo, TZ_BERLIN) == 0) {
+    html += " selected";
+  }
+  html += ">Europe/Berlin</option>";
+  html += "<option value='dubai'";
+  if (strcmp(tzInfo, TZ_DUBAI) == 0) {
+    html += " selected";
+  }
+  html += ">Asia/Dubai</option>";
+  html += "<option value='kolkata'";
+  if (strcmp(tzInfo, TZ_KOLKATA) == 0) {
+    html += " selected";
+  }
+  html += ">Asia/Kolkata</option>";
+  html += "<option value='shanghai'";
+  if (strcmp(tzInfo, TZ_SHANGHAI) == 0) {
+    html += " selected";
+  }
+  html += ">Asia/Shanghai</option>";
+  html += "<option value='moscow'";
+  if (strcmp(tzInfo, TZ_MOSCOW) == 0) {
+    html += " selected";
+  }
+  html += ">Europe/Moscow</option>";
+  html += "</select></div>";
   html += "<small>Esempio: pool.ntp.org, time.google.com</small><br><br>";
   html += "<button type='submit'>Save Settings</button>";
   html += "</form>";
@@ -234,6 +353,9 @@ void handleRoot() {
 }
 
 void handleUpdate() {
+  bool ntpServerChanged = false;
+  bool timezoneChanged = false;
+
   if (server.hasArg("quadrantsColor")) {
     colorQuadrants = hexToColor(server.arg("quadrantsColor"));
   }
@@ -253,14 +375,65 @@ void handleUpdate() {
     ring.setBrightness(brightness);
   }
   showQuadrants = server.hasArg("showQuadrants");
+  if (server.hasArg("quadrantMode")) {
+    int mode = server.arg("quadrantMode").toInt();
+    quadrantMode = (mode == 4) ? 4 : 12;
+  }
+  if (server.hasArg("hourHandMode")) {
+    int mode = server.arg("hourHandMode").toInt();
+    hourHandMode = (mode == 1) ? 1 : 0;
+  }
   if (server.hasArg("ntpServer")) {
     String inputNtp = server.arg("ntpServer");
     inputNtp.trim();
     if (inputNtp.length() > 0 && inputNtp.length() < (int)sizeof(ntpServer)) {
-      inputNtp.toCharArray(ntpServer, sizeof(ntpServer));
-      timeSynced = syncTimeWithNTP();
+      if (strncmp(ntpServer, inputNtp.c_str(), sizeof(ntpServer) - 1) != 0) {
+        inputNtp.toCharArray(ntpServer, sizeof(ntpServer));
+        ntpServerChanged = true;
+      }
     }
   }
+  if (server.hasArg("tzPreset")) {
+    String tzPreset = server.arg("tzPreset");
+    const char* newTz = TZ_ROME;
+    if (tzPreset == "london") {
+      newTz = TZ_LONDON;
+    } else if (tzPreset == "utc") {
+      newTz = TZ_UTC;
+    } else if (tzPreset == "newyork") {
+      newTz = TZ_NEWYORK;
+    } else if (tzPreset == "losangeles") {
+      newTz = TZ_LOSANGELES;
+    } else if (tzPreset == "tokyo") {
+      newTz = TZ_TOKYO;
+    } else if (tzPreset == "sydney") {
+      newTz = TZ_SYDNEY;
+    } else if (tzPreset == "berlin") {
+      newTz = TZ_BERLIN;
+    } else if (tzPreset == "dubai") {
+      newTz = TZ_DUBAI;
+    } else if (tzPreset == "kolkata") {
+      newTz = TZ_KOLKATA;
+    } else if (tzPreset == "shanghai") {
+      newTz = TZ_SHANGHAI;
+    } else if (tzPreset == "moscow") {
+      newTz = TZ_MOSCOW;
+    }
+
+    if (strncmp(tzInfo, newTz, sizeof(tzInfo) - 1) != 0) {
+      strncpy(tzInfo, newTz, sizeof(tzInfo));
+      tzInfo[sizeof(tzInfo) - 1] = '\0';
+      timezoneChanged = true;
+    }
+  }
+
+  if (timezoneChanged) {
+    applyTimezone();
+  }
+  if (ntpServerChanged) {
+    timeSynced = syncTimeWithNTP();
+  }
+
   saveSettings();
 
   server.sendHeader("Location", "/");
@@ -312,7 +485,7 @@ String colorToHex(uint32_t color) {
 }
 
 uint32_t applyGammaCorrection(uint32_t color) {
-  return ring.gamma32(color);
+  return color;
 }
 
 int wrapLedIndex(int index) {
@@ -328,14 +501,18 @@ int wrapLedIndex(int index) {
 
 bool syncTimeWithNTP() {
   Serial.println("Syncing time with NTP...");
-  configTime(0, 0, ntpServer, NTP_SERVER_2, NTP_SERVER_3);
-  setenv("TZ", TZ_INFO, 1);
-  tzset();
+  // Use ESP8266 overload with TZ string to ensure timezone is applied reliably.
+  configTime(tzInfo, ntpServer, NTP_SERVER_2, NTP_SERVER_3);
 
   for (int i = 0; i < 60; i++) {
     time_t now = time(nullptr);
     if (now > 100000) {
+      struct tm localNow;
+      localtime_r(&now, &localNow);
+      char timeBuf[32];
+      strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", &localNow);
       Serial.println("NTP sync successful");
+      Serial.println(String("Local time after sync: ") + timeBuf + " TZ=" + tzInfo);
       return true;
     }
     delay(250);
@@ -343,6 +520,11 @@ bool syncTimeWithNTP() {
 
   Serial.println("NTP sync failed");
   return false;
+}
+
+void applyTimezone() {
+  setenv("TZ", tzInfo, 1);
+  tzset();
 }
 
 void loadSettings() {
@@ -361,11 +543,19 @@ void loadSettings() {
   brightness = s.brightness;
   if (brightness > 255) brightness = 255;
   showQuadrants = (s.showQuadrants != 0);
+  quadrantMode = (s.quadrantMode == 4) ? 4 : 12;
+  hourHandMode = (s.hourHandMode == 1) ? 1 : 0;
   if (strlen(s.ntpServer) > 0 && strlen(s.ntpServer) < sizeof(ntpServer)) {
     strncpy(ntpServer, s.ntpServer, sizeof(ntpServer));
     ntpServer[sizeof(ntpServer) - 1] = '\0';
   }
+  if (strlen(s.tzInfo) > 0 && strlen(s.tzInfo) < sizeof(tzInfo)) {
+    strncpy(tzInfo, s.tzInfo, sizeof(tzInfo));
+    tzInfo[sizeof(tzInfo) - 1] = '\0';
+  }
 
+  Serial.println(String("Loaded NTP from EEPROM: ") + ntpServer);
+  Serial.println(String("Loaded TZ from EEPROM: ") + tzInfo);
   Serial.println("Settings loaded from EEPROM");
 }
 
@@ -378,8 +568,12 @@ void saveSettings() {
   s.colorSecondHand = colorSecondHand;
   s.brightness = (uint8_t)brightness;
   s.showQuadrants = showQuadrants ? 1 : 0;
+  s.quadrantMode = (quadrantMode == 4) ? 4 : 12;
+  s.hourHandMode = (hourHandMode == 1) ? 1 : 0;
   strncpy(s.ntpServer, ntpServer, sizeof(s.ntpServer));
   s.ntpServer[sizeof(s.ntpServer) - 1] = '\0';
+  strncpy(s.tzInfo, tzInfo, sizeof(s.tzInfo));
+  s.tzInfo[sizeof(s.tzInfo) - 1] = '\0';
 
   EEPROM.put(0, s);
   EEPROM.commit();
