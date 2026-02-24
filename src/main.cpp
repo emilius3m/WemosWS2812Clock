@@ -39,7 +39,6 @@ struct SavedSettings {
   uint32_t colorHourHand;
   uint32_t colorMinuteHand;
   uint32_t colorSecondHand;
-  uint8_t brightness;
   uint8_t showQuadrants;
   uint8_t quadrantMode;
   uint8_t hourHandMode;
@@ -47,7 +46,7 @@ struct SavedSettings {
   char tzInfo[64];
 };
 
-const uint32_t SETTINGS_MAGIC = 0xC10C2029;
+const uint32_t SETTINGS_MAGIC = 0xC10C2031;
 const int EEPROM_SIZE = 512;
 
 // Forward declarations
@@ -79,7 +78,9 @@ uint32_t colorSecondHand = ring.Color(0, 0, 255);      // Second hand
 bool showQuadrants = true;
 uint8_t quadrantMode = 12; // Allowed values: 4 or 12
 uint8_t hourHandMode = 0;  // 0 = step (hour only), 1 = continuous (hour+minute)
-int brightness = 255;
+// Keep brightness fixed at 255 to avoid user-side dimming artifacts and ensure
+// clear hand visibility in all overlap cases (hour/minute/second).
+const uint8_t BRIGHTNESS_FIXED = 255;
 
 void setup() {
   Serial.begin(9600);
@@ -90,7 +91,7 @@ void setup() {
 
   // Initialize NeoPixel Ring
   ring.begin();
-  ring.setBrightness(brightness);
+  ring.setBrightness(BRIGHTNESS_FIXED);
   ring.show();
 
 
@@ -184,12 +185,12 @@ void displayClock() {
     hourPos = wrapLedIndex(((now.tm_hour % 12) * NUM_LEDS) / 12);
   }
 
-  // Set hands
-  ring.setPixelColor(secondPos, applyGammaCorrection(colorSecondHand));
-  ring.setPixelColor(minutePos, applyGammaCorrection(colorMinuteHand));
+  // Set hands (draw order matters on overlap)
   ring.setPixelColor(wrapLedIndex(hourPos - 1), applyGammaCorrection(colorHourHand));
   ring.setPixelColor(hourPos, applyGammaCorrection(colorHourHand));
   ring.setPixelColor(wrapLedIndex(hourPos + 1), applyGammaCorrection(colorHourHand));
+  ring.setPixelColor(minutePos, applyGammaCorrection(colorMinuteHand));
+  ring.setPixelColor(secondPos, applyGammaCorrection(colorSecondHand));
 
   ring.show();
   delay(1000); // Update every second
@@ -247,21 +248,20 @@ void handleRoot() {
   html += "<div class='row'><label>Second Hand</label><input type='color' name='secondHandColor' value='" + colorToHex(colorSecondHand) + "'></div>";
   html += "</div>";
   html += "<h2>Display</h2>";
-  html += "<div class='row'><label>Brightness (0-255)</label><input type='number' min='0' max='255' name='brightness' value='" + String(brightness) + "'></div>";
-  html += "<label class='check'><input type='checkbox' name='showQuadrants' value='1'";
-  if (showQuadrants) {
-    html += " checked";
-  }
-  html += "> Show Quadrants</label>";
   html += "<div class='row'><label>Quadrant Mode</label>";
   html += "<select name='quadrantMode' style='width:100%;height:40px;border-radius:8px;border:1px solid #475569;background:#0b1220;color:#e2e8f0;padding:0 10px;box-sizing:border-box;'>";
+  html += "<option value='0'";
+  if (!showQuadrants) {
+    html += " selected";
+  }
+  html += ">Off</option>";
   html += "<option value='4'";
-  if (quadrantMode == 4) {
+  if (showQuadrants && quadrantMode == 4) {
     html += " selected";
   }
   html += ">4 quadrants</option>";
   html += "<option value='12'";
-  if (quadrantMode == 12) {
+  if (showQuadrants && quadrantMode == 12) {
     html += " selected";
   }
   html += ">12 quadrants</option>";
@@ -368,16 +368,14 @@ void handleUpdate() {
   if (server.hasArg("secondHandColor")) {
     colorSecondHand = hexToColor(server.arg("secondHandColor"));
   }
-  if (server.hasArg("brightness")) {
-    brightness = server.arg("brightness").toInt();
-    if (brightness < 0) brightness = 0;
-    if (brightness > 255) brightness = 255;
-    ring.setBrightness(brightness);
-  }
-  showQuadrants = server.hasArg("showQuadrants");
+  ring.setBrightness(BRIGHTNESS_FIXED);
   if (server.hasArg("quadrantMode")) {
     int mode = server.arg("quadrantMode").toInt();
-    quadrantMode = (mode == 4) ? 4 : 12;
+    if (mode == 0) {
+      showQuadrants = false;
+    } else {
+      quadrantMode = (mode == 4) ? 4 : 12;
+    }
   }
   if (server.hasArg("hourHandMode")) {
     int mode = server.arg("hourHandMode").toInt();
@@ -540,8 +538,6 @@ void loadSettings() {
   colorHourHand = s.colorHourHand;
   colorMinuteHand = s.colorMinuteHand;
   colorSecondHand = s.colorSecondHand;
-  brightness = s.brightness;
-  if (brightness > 255) brightness = 255;
   showQuadrants = (s.showQuadrants != 0);
   quadrantMode = (s.quadrantMode == 4) ? 4 : 12;
   hourHandMode = (s.hourHandMode == 1) ? 1 : 0;
@@ -566,7 +562,6 @@ void saveSettings() {
   s.colorHourHand = colorHourHand;
   s.colorMinuteHand = colorMinuteHand;
   s.colorSecondHand = colorSecondHand;
-  s.brightness = (uint8_t)brightness;
   s.showQuadrants = showQuadrants ? 1 : 0;
   s.quadrantMode = (quadrantMode == 4) ? 4 : 12;
   s.hourHandMode = (hourHandMode == 1) ? 1 : 0;
@@ -607,7 +602,7 @@ void pulsatingGlowAnimation() {
     ring.show();
     delay(20);
   }
-  ring.setBrightness(::brightness); // Restore configured brightness
+  ring.setBrightness(BRIGHTNESS_FIXED); // Restore fixed brightness
 }
 
 
