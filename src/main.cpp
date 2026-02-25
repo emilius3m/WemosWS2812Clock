@@ -374,6 +374,7 @@ void handleUpdate() {
     if (mode == 0) {
       showQuadrants = false;
     } else {
+      showQuadrants = true;
       quadrantMode = (mode == 4) ? 4 : 12;
     }
   }
